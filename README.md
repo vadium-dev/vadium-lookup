@@ -45,16 +45,13 @@ discover tools this way rather than by calling an HTTP endpoint
 directly:
 
 ```bash
-pip install vadium-lookup
+pip install git+https://github.com/vadium-dev/vadium-lookup.git
 export BASESCAN_API_KEY="your-key"   # optional, same as above
 vadium-lookup-mcp
 ```
 
-Or via `uvx`, no separate install step:
-
-```bash
-uvx --from vadium-lookup vadium-lookup-mcp
-```
+(Not yet published to PyPI — `pip install vadium-lookup` will work once
+it is, this is the real, currently-working install path.)
 
 Exposes one tool, `check_agent_trust(agent_id)`, returning the same
 raw-plus-Sybil-adjusted result as the HTTP endpoint.
