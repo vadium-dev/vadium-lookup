@@ -37,3 +37,24 @@ curl "http://localhost:8000/lookup/1"
 See `render.yaml` — Render's free tier needs no credit card. Set
 `BASESCAN_API_KEY` in the service's Environment tab after the first
 deploy.
+
+## MCP server
+
+Same lookup, exposed as an MCP tool for agents/coding assistants that
+discover tools this way rather than by calling an HTTP endpoint
+directly:
+
+```bash
+pip install vadium-lookup
+export BASESCAN_API_KEY="your-key"   # optional, same as above
+vadium-lookup-mcp
+```
+
+Or via `uvx`, no separate install step:
+
+```bash
+uvx --from vadium-lookup vadium-lookup-mcp
+```
+
+Exposes one tool, `check_agent_trust(agent_id)`, returning the same
+raw-plus-Sybil-adjusted result as the HTTP endpoint.

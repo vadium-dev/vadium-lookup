@@ -1,0 +1,23 @@
+[project]
+name = "vadium-lookup"
+version = "0.1.0"
+description = "Free ERC-8004 trust lookup, raw and Sybil-adjusted — no payment required"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.54.0",
+    "web3==8.0.0",
+    "requests==2.34.2",
+    "mcp[cli]>=2.2.0",
+]
+
+[project.scripts]
+vadium-lookup-mcp = "mvp.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mvp"]
