@@ -15,11 +15,14 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from mvp.lookup import lookup
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(
     title="Vadium Lookup (MVP)",
@@ -202,6 +205,65 @@ if X402_PAY_TO_ADDRESS:
             return JSONResponse(status_code=502, content={"error": str(e)})
 else:
     print("X402_PAY_TO_ADDRESS not set — /lookup-paid route disabled, free /lookup route unaffected", flush=True)
+
+
+# ============================================================
+# ERC-8004 agent registration file — the "agentURI" a registered
+# agentId's tokenURI points to (see ERC8004SPEC.md's registration-v1
+# format). Deliberately only lists what's real and live: no A2A/OASF/
+# ENS/DID entries we don't actually implement, no "crypto-economic" or
+# "tee-attestation" trust claims we can't back yet. `services` omits
+# MCP too — our MCP server runs over stdio (`vadium-lookup-mcp`), not a
+# network URL, and the spec's MCP entry expects an endpoint URI; listing
+# a stdio tool as if it had one would be a false claim, not a shortcut.
+#
+# `registrations` is genuinely unknown until after on-chain registration
+# mints an agentId (register() first, read the agentId back, then
+# setAgentURI() to point at this file) — omitted, not faked, until
+# ERC8004_AGENT_ID is set post-registration. See ADR-016
+# (docs/phase3-design-decisions.md) for why `payTo` never appears here:
+# this file's identity is agentWallet, not whichever wallet a given
+# payment happens to land in.
+# ============================================================
+
+_ERC8004_IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+_ERC8004_AGENT_ID = os.environ.get("ERC8004_AGENT_ID")
+
+
+@app.get("/.well-known/agent-registration.json")
+def agent_registration():
+    doc = {
+        "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+        "name": "Vadium Lookup",
+        "description": (
+            "Free ERC-8004 trust-record lookup by agentId: raw public "
+            "reputation feedback plus a Sybil-adjusted score, diversity-"
+            "weighted by funding cluster so a group of reviewers tracing "
+            "back to one funder counts as roughly one independent voice. "
+            "An optional paid twin exists at $0.001 USDC via x402, to "
+            "measure willingness-to-pay directly rather than infer it."
+        ),
+        "image": "https://vadium-lookup.onrender.com/logo.svg",
+        "services": [
+            {"name": "web", "endpoint": "https://vadium-lookup.onrender.com/"},
+        ],
+        "x402Support": True,
+        "active": True,
+        "supportedTrust": ["reputation"],
+    }
+    if _ERC8004_AGENT_ID:
+        doc["registrations"] = [
+            {
+                "agentId": int(_ERC8004_AGENT_ID),
+                "agentRegistry": f"eip155:8453:{_ERC8004_IDENTITY_REGISTRY}",
+            }
+        ]
+    return doc
+
+
+@app.get("/logo.svg")
+def logo():
+    return FileResponse(_STATIC_DIR / "logo.svg", media_type="image/svg+xml")
 
 
 @app.get("/")
