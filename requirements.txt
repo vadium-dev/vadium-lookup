@@ -2,3 +2,8 @@ fastapi==0.141.1
 uvicorn[standard]==0.54.0
 web3==8.0.0
 requests==2.34.2
+
+# Only used by the optional paid /lookup-paid route — inert (route never
+# registered) unless X402_PAY_TO_ADDRESS is set in the environment.
+x402[fastapi]==2.24.0
+cdp-sdk==1.48.1

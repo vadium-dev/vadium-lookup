@@ -12,6 +12,11 @@ dependencies = [
     "mcp[cli]>=2.2.0",
 ]
 
+[project.optional-dependencies]
+# Only needed to run the optional paid /lookup-paid route (inert unless
+# X402_PAY_TO_ADDRESS is set): pip install "vadium-lookup[paid]"
+paid = ["x402[fastapi]==2.24.0", "cdp-sdk==1.48.1"]
+
 [project.scripts]
 vadium-lookup-mcp = "mvp.mcp_server:main"
 

@@ -11,6 +11,7 @@ Then:
     curl "http://localhost:8000/lookup/123?reviewers=0xabc...,0xdef..."
 """
 
+import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -107,6 +108,100 @@ def stats():
     view, not the source of truth, and resets on redeploy/restart.
     """
     return {"discovery_counts_by_channel": dict(_discovery_counts)}
+
+
+# ============================================================
+# Paid twin of the same lookup, via x402 — NOT the "real" version of
+# this product, a deliberate second instrument. The free route above
+# stays the default and the one everywhere else (MCP, README) points
+# to. This one exists for two things the free route structurally can't
+# measure: (1) willingness-to-pay, directly, not inferred from someone
+# else's comparable; (2) x402 Bazaar's discovery mechanism is
+# payment-triggered — a service is only auto-indexed once the CDP
+# facilitator processes a real payment against it, so a free-only
+# endpoint is invisible there no matter how it's listed.
+#
+# Disabled entirely (route never registered) unless X402_PAY_TO_ADDRESS
+# is set — no half-configured payment route silently accepting
+# requests it can't actually settle.
+# ============================================================
+
+X402_PAY_TO_ADDRESS = os.environ.get("X402_PAY_TO_ADDRESS")
+
+if X402_PAY_TO_ADDRESS:
+    from cdp.x402 import create_facilitator_config
+    from x402.http import HTTPFacilitatorClient, PaymentOption
+    from x402.http.middleware.fastapi import PaymentMiddlewareASGI
+    from x402.http.types import RouteConfig
+    from x402.mechanisms.evm.exact import ExactEvmServerScheme
+    from x402.schemas import Network
+
+    from x402.server import x402ResourceServer
+
+    _BASE_MAINNET: Network = "eip155:8453"
+
+    # create_facilitator_config() reads CDP_API_KEY_ID/CDP_API_KEY_SECRET
+    # from the environment and points at Coinbase's CDP facilitator
+    # either way — without those set, verify/settle calls will fail
+    # (expected, not a crash) until real credentials are added; the 402
+    # challenge itself is generated locally and works regardless.
+    _facilitator = HTTPFacilitatorClient(create_facilitator_config())
+    _x402_server = x402ResourceServer(_facilitator)
+    _x402_server.register(_BASE_MAINNET, ExactEvmServerScheme())
+
+    _PAID_PRICE = "$0.001"  # matches the x402 quickstart's own example; trivial by design, not a revenue price
+
+    app.add_middleware(
+        PaymentMiddlewareASGI,
+        routes={
+            # This SDK's own path syntax (":param" / "[param]" / "*"), NOT
+            # FastAPI's "{param}" — confirmed by reading
+            # x402_http_server_base.py's _parse_route_pattern directly
+            # after "{agent_id}" silently matched nothing and let requests
+            # through unprotected. Verify against real traffic again if
+            # this SDK version ever changes.
+            "GET /lookup-paid/:agent_id": RouteConfig(
+                accepts=[
+                    PaymentOption(
+                        scheme="exact",
+                        pay_to=X402_PAY_TO_ADDRESS,
+                        price=_PAID_PRICE,
+                        network=_BASE_MAINNET,
+                    ),
+                ],
+                mime_type="application/json",
+                description=(
+                    "Same lookup as /lookup/{agentId} — this route exists to "
+                    "measure willingness-to-pay and x402 Bazaar discoverability, "
+                    "not because the result is different or better paid."
+                ),
+            ),
+        },
+        server=_x402_server,
+    )
+
+    @app.get("/lookup-paid/{agent_id}")
+    def get_lookup_paid(
+        agent_id: int,
+        request: Request,
+        reviewers: str | None = Query(default=None),
+        via: str = Query(default="x402-paid"),
+    ):
+        caller_ip = _client_ip(request)
+        _check_rate_limit(caller_key=caller_ip)  # still a guard, even though payment itself throttles most abuse
+        _discovery_counts[via] += 1
+        print(
+            f"lookup_paid agent_id={agent_id} via={via} caller_ip={caller_ip} "
+            f"at={datetime.now(timezone.utc).isoformat()}",
+            flush=True,
+        )
+        known = [a.strip() for a in reviewers.split(",")] if reviewers else None
+        try:
+            return lookup(agent_id, known_reviewers=known)
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse(status_code=502, content={"error": str(e)})
+else:
+    print("X402_PAY_TO_ADDRESS not set — /lookup-paid route disabled, free /lookup route unaffected", flush=True)
 
 
 @app.get("/")

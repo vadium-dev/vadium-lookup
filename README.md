@@ -31,6 +31,26 @@ curl "http://localhost:8000/lookup/1"
 | `BASESCAN_API_KEY` | No — Sybil-adjustment disabled without it | none |
 | `BASE_RPC_URL` | No | `https://mainnet.base.org` |
 | `ERC8004_REPUTATION_REGISTRY_ADDRESS` | No | Base mainnet's real deployed address |
+| `X402_PAY_TO_ADDRESS` | No — enables the optional paid route below | none (route disabled) |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Only if `X402_PAY_TO_ADDRESS` is set | none |
+
+## Optional paid route (`/lookup-paid/{agentId}`)
+
+Same lookup as the free route, priced at $0.001 in USDC on Base mainnet via
+[x402](https://x402.org). This isn't a monetization play — it exists to
+measure willingness-to-pay directly and because x402 Bazaar only indexes
+services that have processed a real payment. The free `/lookup/{agentId}`
+route stays the default everywhere (MCP, this README).
+
+Disabled entirely unless `X402_PAY_TO_ADDRESS` is set. Requires the `paid`
+extra:
+
+```bash
+pip install -r requirements.txt   # includes x402[fastapi] + cdp-sdk
+export X402_PAY_TO_ADDRESS="0x..."       # your receiving address
+export CDP_API_KEY_ID="..."              # CDP facilitator auth
+export CDP_API_KEY_SECRET="..."
+```
 
 ## Deploying
 
