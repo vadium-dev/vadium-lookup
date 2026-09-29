@@ -5,11 +5,14 @@ requests==2.34.2
 
 # Only used by the optional paid /lookup-paid route — inert (route never
 # registered) unless X402_PAY_TO_ADDRESS is set in the environment.
-# [extensions] added 2026-09-29 — the Bazaar discovery extension imports
-# jsonschema for its validation path; without this extra, the import
-# chain (x402.extensions.bazaar -> .facilitator) raises ImportError at
-# startup. Missed locally because jsonschema was already present
-# transitively in the dev venv; the real fix is declaring it explicitly,
-# not just pip-installing it into an existing environment.
-x402[fastapi,extensions]==2.24.0
+x402[fastapi]==2.24.0
+# The Bazaar discovery extension (x402.extensions.bazaar) imports
+# jsonschema for its validation path at import time, even though we
+# don't use x402's SIWE support. Deliberately NOT using x402's own
+# [extensions] extra for this — it also pulls in signinwithethereum,
+# which pins eth-account<0.14, directly conflicting with web3==8.0.0's
+# eth-account>=0.14 requirement (confirmed 2026-09-29: real
+# ResolutionImpossible from pip, not a hypothetical). jsonschema alone
+# is the only thing our code path actually needs.
+jsonschema==4.26.0
 cdp-sdk==1.48.1
