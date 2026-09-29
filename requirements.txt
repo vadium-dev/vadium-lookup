@@ -5,5 +5,11 @@ requests==2.34.2
 
 # Only used by the optional paid /lookup-paid route — inert (route never
 # registered) unless X402_PAY_TO_ADDRESS is set in the environment.
-x402[fastapi]==2.24.0
+# [extensions] added 2026-09-29 — the Bazaar discovery extension imports
+# jsonschema for its validation path; without this extra, the import
+# chain (x402.extensions.bazaar -> .facilitator) raises ImportError at
+# startup. Missed locally because jsonschema was already present
+# transitively in the dev venv; the real fix is declaring it explicitly,
+# not just pip-installing it into an existing environment.
+x402[fastapi,extensions]==2.24.0
 cdp-sdk==1.48.1
