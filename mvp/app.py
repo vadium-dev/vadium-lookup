@@ -133,6 +133,11 @@ X402_PAY_TO_ADDRESS = os.environ.get("X402_PAY_TO_ADDRESS")
 
 if X402_PAY_TO_ADDRESS:
     from cdp.x402 import create_facilitator_config
+    from x402.extensions.bazaar import (
+        OutputConfig,
+        bazaar_resource_server_extension,
+        declare_discovery_extension,
+    )
     from x402.http import HTTPFacilitatorClient, PaymentOption
     from x402.http.middleware.fastapi import PaymentMiddlewareASGI
     from x402.http.types import RouteConfig
@@ -151,8 +156,36 @@ if X402_PAY_TO_ADDRESS:
     _facilitator = HTTPFacilitatorClient(create_facilitator_config())
     _x402_server = x402ResourceServer(_facilitator)
     _x402_server.register(_BASE_MAINNET, ExactEvmServerScheme())
+    # Registering this is what actually makes the route's `extensions`
+    # dict below get enriched (HTTP method, route template) and surfaced
+    # to the CDP facilitator's Bazaar catalog — a route with a bare
+    # `extensions={"bazaar": ...}` dict and no registered extension is
+    # still invisible to the indexer. Confirmed 2026-09-29: this was
+    # missing entirely, which is why the service never showed up in the
+    # live catalog (checked directly against the 19,128-entry public
+    # discovery/resources feed) despite the route being live.
+    _x402_server.register_extension(bazaar_resource_server_extension)
 
     _PAID_PRICE = "$0.001"  # matches the x402 quickstart's own example; trivial by design, not a revenue price
+
+    _LOOKUP_BAZAAR_EXTENSION = declare_discovery_extension(
+        path_params_schema={
+            "properties": {"agent_id": {"type": "string", "description": "ERC-8004 agentId to look up"}},
+            "required": ["agent_id"],
+        },
+        output=OutputConfig(
+            example={
+                "agent_id": 95910,
+                "vadium_native": {"disputes": 0, "objective_slashes": 0, "note": "no Vadium-native history yet"},
+                "erc8004_public": {
+                    "available": True,
+                    "raw": {"count": 3, "value": 2, "reviewer_count_considered": 3,
+                            "source": "ERC-8004 ReputationRegistry (raw, unweighted)"},
+                    "sybil_adjusted": {"score": 1.4, "note": "diversity-weighted by funding cluster"},
+                },
+            },
+        ),
+    )
 
     app.add_middleware(
         PaymentMiddlewareASGI,
@@ -178,6 +211,10 @@ if X402_PAY_TO_ADDRESS:
                     "measure willingness-to-pay and x402 Bazaar discoverability, "
                     "not because the result is different or better paid."
                 ),
+                service_name="Vadium Lookup",
+                tags=["reputation", "trust", "erc-8004", "agent-identity"],
+                icon_url="https://vadium-lookup.onrender.com/logo.svg",
+                extensions=_LOOKUP_BAZAAR_EXTENSION,
             ),
         },
         server=_x402_server,
