@@ -1,0 +1,45 @@
+# Deployed on the Atesta Hetzner box (2026-10-02, moved off Render after
+# confirming its free-tier disk doesn't survive a redeploy — see
+# mvp/outcomes.py and docs/mcp-server-spec.md). On that box this file
+# lives at /opt/vadium-lookup/docker-compose.yml with the app source
+# rsynced into /opt/vadium-lookup/app/, so `build: .` there is actually
+# `build: ./app` — adjust the build context if deploying from a
+# different layout than this repo's own (file-at-root) structure.
+services:
+  vadium-lookup:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://vadium:${DB_PASSWORD}@postgres:5432/vadium_lookup
+      - BASESCAN_API_KEY=${BASESCAN_API_KEY}
+      - CDP_API_KEY_ID=${CDP_API_KEY_ID}
+      - CDP_API_KEY_SECRET=${CDP_API_KEY_SECRET}
+      - ERC8004_AGENT_ID=${ERC8004_AGENT_ID}
+      - X402_PAY_TO_ADDRESS=${X402_PAY_TO_ADDRESS}
+    ports:
+      - '127.0.0.1:3300:3300'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Deliberately a separate Postgres instance from Paperclip's, not a
+  # shared one — same "additive, isolated" principle the demo-hosting
+  # runbook already established for this box: a public product's data
+  # shouldn't share a blast radius with the internal board tool's.
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=vadium
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=vadium_lookup
+    volumes:
+      - vadium_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vadium']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  vadium_postgres_data:

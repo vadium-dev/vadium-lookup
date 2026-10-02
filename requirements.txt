@@ -2,6 +2,12 @@ fastapi==0.141.1
 uvicorn[standard]==0.54.0
 web3==8.0.0
 requests==2.34.2
+# Added 2026-10-02 for mvp/outcomes.py's move off ephemeral local SQLite
+# to Postgres — confirmed by direct testing that the Render disk doesn't
+# survive a redeploy, so self-reported outcomes need real persistent
+# storage, not a local file. psycopg[binary] avoids needing libpq-dev in
+# the container build.
+psycopg[binary]==3.3.6
 # Was listed in pyproject.toml but missing here — latent until mvp/app.py
 # started importing mvp.mcp_server to mount the streamable-http transport
 # (docs/mcp-server-spec.md); `pip install -r requirements.txt` alone would

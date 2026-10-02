@@ -263,7 +263,7 @@ if X402_PAY_TO_ADDRESS:
                 ),
                 service_name="Vadium Lookup",
                 tags=["reputation", "trust", "erc-8004", "agent-identity"],
-                icon_url="https://vadium-lookup.onrender.com/logo.svg",
+                icon_url="https://vadium-lookup.atesta.io/logo.svg",
                 extensions=_LOOKUP_BAZAAR_EXTENSION,
             ),
         },
@@ -299,10 +299,12 @@ else:
 # agentId's tokenURI points to (see ERC8004SPEC.md's registration-v1
 # format). Deliberately only lists what's real and live: no A2A/OASF/
 # ENS/DID entries we don't actually implement, no "crypto-economic" or
-# "tee-attestation" trust claims we can't back yet. `services` omits
-# MCP too — our MCP server runs over stdio (`vadium-lookup-mcp`), not a
-# network URL, and the spec's MCP entry expects an endpoint URI; listing
-# a stdio tool as if it had one would be a false claim, not a shortcut.
+# "tee-attestation" trust claims we can't back yet. `services` now
+# includes a real MCP entry — the earlier version of this comment said
+# it was omitted because the MCP server only ran over stdio, with no
+# network URL to honestly list; that's no longer true as of the
+# streamable-http mount (docs/mcp-server-spec.md), so the omission
+# would now be stale, not honest.
 #
 # `registrations` is genuinely unknown until after on-chain registration
 # mints an agentId (register() first, read the agentId back, then
@@ -330,9 +332,10 @@ def agent_registration():
             "An optional paid twin exists at $0.001 USDC via x402, to "
             "measure willingness-to-pay directly rather than infer it."
         ),
-        "image": "https://vadium-lookup.onrender.com/logo.svg",
+        "image": "https://vadium-lookup.atesta.io/logo.svg",
         "services": [
-            {"name": "web", "endpoint": "https://vadium-lookup.onrender.com/"},
+            {"name": "web", "endpoint": "https://vadium-lookup.atesta.io/"},
+            {"name": "mcp", "endpoint": "https://vadium-lookup.atesta.io/mcp"},
         ],
         "x402Support": True,
         "active": True,
