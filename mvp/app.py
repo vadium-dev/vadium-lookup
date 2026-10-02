@@ -25,6 +25,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from mvp.lookup import lookup
 from mvp.mcp_server import mcp
+from mvp.oauth_provider import verify_identity_page, verify_identity_submit
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -44,8 +45,22 @@ _STATIC_DIR = Path(__file__).parent / "static"
 # vadium-lookup.onrender.com). The fix is not to disable the protection —
 # it's to scope it to the real hostnames this service actually serves.
 _ALLOWED_HOSTS = ["vadium-lookup.atesta.io", "127.0.0.1:*", "localhost:*"]
+# streamable_http_path="/mcp" (not "/" as before OAuth) — now that
+# OAuth is wired in, this sub-app owns its OWN absolute paths (/mcp,
+# /authorize, /token, /register, /revoke, /.well-known/...), because the
+# SDK computes the RFC 9728 protected-resource-metadata path as relative
+# to the domain root unconditionally, with no awareness of a mount
+# prefix. Nesting this whole sub-app under a "/mcp" FastAPI mount (the
+# pre-OAuth setup) silently doubled that prefix for every OAuth route
+# except the transport endpoint itself — confirmed directly: the
+# WWW-Authenticate header advertised
+# /.well-known/oauth-protected-resource/mcp but that path 404'd, because
+# it actually lived at /mcp/.well-known/oauth-protected-resource/mcp.
+# Fix: mount this app at FastAPI's root ("/", at the bottom of this
+# file, after every other route) instead of under "/mcp" — see the
+# app.mount() call below.
 _mcp_app = mcp.streamable_http_app(
-    streamable_http_path="/",
+    streamable_http_path="/mcp",
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=_ALLOWED_HOSTS,
@@ -83,7 +98,17 @@ app = FastAPI(
 # sub-app defaults to routing at "/mcp" *internally*, which combined with
 # mounting it at "/mcp" below would serve the real endpoint at /mcp/mcp,
 # not /mcp. Verified directly against a running instance, not assumed.
-app.mount("/mcp", _mcp_app)
+# The human half of the OAuth /authorize step (docs/oauth-trust-spec.md):
+# VadiumOAuthProvider.authorize() redirects here instead of to a real
+# third-party IdP. Plain Starlette routes, not FastAPI path operations,
+# since they're returning raw HTML/JSON rather than being part of this
+# app's own schema. Registered here (before the root mount at the
+# bottom of this file), not that it matters for these two paths
+# specifically — they don't collide with anything inside _mcp_app — but
+# kept alongside the rest of this app's own route definitions for
+# readability.
+app.add_route("/oauth/verify-identity", verify_identity_page, methods=["GET"])
+app.add_route("/oauth/verify-identity/submit", verify_identity_submit, methods=["POST"])
 
 # Abuse guard, not a paywall: a simple fixed-window limiter, per caller —
 # fixed 2026-09-27, was keyed "global" (one shared bucket for every
@@ -367,3 +392,13 @@ def root():
                 "not the collateral/dispute-resolution product — that's Phase 3, "
                 "designed but not yet built.",
     }
+
+
+# Mounted at root, and LAST — order matters. Every route above is tried
+# first (Starlette matches in registration order); only a path none of
+# them match (/mcp, /authorize, /token, /register, /revoke,
+# /.well-known/oauth-authorization-server,
+# /.well-known/oauth-protected-resource/mcp) falls through to this
+# sub-app. Mounting at "/" rather than "/mcp" is required, not a style
+# choice — see the long comment above _mcp_app's construction.
+app.mount("/", _mcp_app)

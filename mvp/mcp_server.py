@@ -13,10 +13,42 @@ separate service). Both serve the same `mcp` instance and the same
 tools; nothing about the tools themselves differs by transport.
 """
 
+import os
+
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 
 from mvp.lookup import lookup
 from mvp import outcomes
+from mvp.oauth_provider import VadiumOAuthProvider
+
+# Both tools sit behind the same OAuth connection (docs/oauth-trust-spec.md)
+# — the SDK's bearer-auth middleware wraps the whole mounted transport,
+# not individual tools, so there's no way to gate report_outcome alone
+# without a second server/mount. That's a one-time per-connection cost
+# for a caller, not a per-call one: once a host like ChatGPT completes
+# the OAuth dance for this server, every tool call after that — including
+# check_agent_trust — rides the same bearer token with no further friction.
+#
+# issuer_url is the bare domain, deliberately WITHOUT a /mcp path —
+# confirmed directly against a live deployment, not assumed: /authorize,
+# /token, /register, /revoke are registered at fixed constant paths
+# (mcp.server.auth.routes.AUTHORIZATION_PATH etc., e.g. plain "/authorize")
+# that do NOT incorporate issuer_url's own path, even though the
+# advertised metadata document (built from issuer_url) does — so an
+# issuer_url of ".../mcp" makes the metadata document advertise
+# ".../mcp/authorize", a route that 404s, while the real route sits at
+# the bare ".../authorize". resource_server_url is the opposite case: a
+# SEPARATE, genuinely path-aware mechanism (RFC 9728 protected-resource
+# metadata) that correctly incorporates its own path, so it keeps "/mcp".
+_ISSUER_URL = os.environ.get("VADIUM_ISSUER_URL", "https://vadium-lookup.atesta.io")
+_RESOURCE_SERVER_URL = os.environ.get("VADIUM_RESOURCE_SERVER_URL", "https://vadium-lookup.atesta.io/mcp")
+_VERIFY_PAGE_URL = os.environ.get(
+    "VADIUM_VERIFY_PAGE_URL", "https://vadium-lookup.atesta.io/oauth/verify-identity"
+)
+
+oauth_provider = VadiumOAuthProvider(verify_page_url=_VERIFY_PAGE_URL)
 
 mcp = MCPServer(
     name="vadium-lookup",
@@ -27,7 +59,22 @@ mcp = MCPServer(
         "reviewers tracing to the same funding source counts closer to one "
         "independent voice than many). No payment required."
     ),
-    version="0.2.0",
+    version="0.3.0",
+    auth_server_provider=oauth_provider,
+    auth=AuthSettings(
+        issuer_url=_ISSUER_URL,
+        resource_server_url=_RESOURCE_SERVER_URL,
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True, valid_scopes=["vadium"], default_scopes=["vadium"]
+        ),
+        revocation_options=RevocationOptions(enabled=True),
+        required_scopes=["vadium"],
+        # Explicit rather than relying on the deprecated implicit default:
+        # we don't want to reject a client that omits the RFC 8707
+        # `resource` indicator on its authorize/token requests, and this
+        # provider doesn't do separate audience validation of its own.
+        validate_token_resource=False,
+    ),
 )
 
 
@@ -46,8 +93,9 @@ def check_agent_trust(agent_id: int) -> dict:
 
     Explicitly annotated read-only: per OpenAI's own documented approval
     model (docs/mcp-server-spec.md), this lets a calling agent invoke it
-    automatically, with no human confirmation required — the whole point
-    of putting this on a reachable transport in the first place.
+    automatically, with no per-call human confirmation — the OAuth
+    connection itself (docs/oauth-trust-spec.md) is the one-time setup
+    step; nothing after that re-prompts the user for this tool.
 
     Args:
         agent_id: The ERC-8004 agentId — an on-chain identity (ERC-721 token id).
@@ -61,13 +109,16 @@ def report_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
     went, after the fact — for an integrator who already called
     check_agent_trust before hiring or paying this agent.
 
-    This is self-reported by whoever calls it, not independently verified
-    at call time, and is never blended into check_agent_trust's raw or
-    Sybil-adjusted ERC-8004 numbers — there's currently no caller-identity
-    signal available to weight it by the way on-chain reviewer feedback
-    is (see docs/mcp-server-spec.md's "Anti-gaming" section for why this
-    is a deliberate simplification, not an oversight). Shown separately,
-    labeled unverified.
+    Self-reported, still never blended into check_agent_trust's raw or
+    Sybil-adjusted ERC-8004 numbers (see docs/mcp-server-spec.md's
+    "Anti-gaming" section) — but as of the OAuth mechanism
+    (docs/oauth-trust-spec.md), each report is now tied to the wallet
+    address that completed this connection's sign-in step, recorded
+    alongside the report rather than being fully anonymous. That address
+    is not verified to own any particular on-chain identity — seeing
+    "docs/oauth-trust-spec.md" above for why that check was deliberately
+    not required — only that it's the same caller across every report
+    this connection makes.
 
     Deliberately NOT marked read-only: this writes a new record, so
     OpenAI's and any other compliant MCP host's approval model requires
@@ -81,7 +132,9 @@ def report_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
             (a transcript, a delivered-artifact hash) — the same
             evidence-URI pattern ERC-8004's giveFeedback() already uses.
     """
-    return outcomes.record_outcome(agent_id, outcome, evidence_ref)
+    access_token = get_access_token()
+    verified_subject = access_token.subject if access_token else None
+    return outcomes.record_outcome(agent_id, outcome, evidence_ref, verified_subject=verified_subject)
 
 
 def main():

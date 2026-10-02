@@ -19,13 +19,14 @@ separately, labeled unverified, until there's a real caller-identity
 signal (the planned OAuth work) to weight it by.
 """
 
-import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-import psycopg
+from mvp.db import DatabaseUnavailable, connect as _db_connect
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Preserve the existing public name — callers (mvp/lookup.py, tests)
+# import OutcomesStoreUnavailable specifically.
+OutcomesStoreUnavailable = DatabaseUnavailable
 
 _VALID_OUTCOMES = {"completed", "disputed", "no_response"}
 
@@ -35,39 +36,42 @@ CREATE TABLE IF NOT EXISTS reported_outcomes (
     agent_id BIGINT NOT NULL,
     outcome TEXT NOT NULL,
     evidence_ref TEXT,
-    reported_at TIMESTAMPTZ NOT NULL
+    reported_at TIMESTAMPTZ NOT NULL,
+    verified_subject TEXT
 )
 """
 
-
-class OutcomesStoreUnavailable(RuntimeError):
-    """Raised when DATABASE_URL isn't configured — fails loudly rather
-    than silently falling back to a local file, since a local file is
-    exactly the ephemeral-storage mistake this module exists to fix.
-    """
+# Added 2026-10-02 alongside the OAuth trust mechanism
+# (docs/oauth-trust-spec.md) — a column that didn't exist when the table
+# was first created. ALTER ... ADD COLUMN IF NOT EXISTS runs alongside
+# CREATE TABLE IF NOT EXISTS so existing deployments pick it up without
+# a separate migration step.
+_MIGRATE = """
+ALTER TABLE reported_outcomes ADD COLUMN IF NOT EXISTS verified_subject TEXT
+"""
 
 
 @contextmanager
 def _connect():
-    if not DATABASE_URL:
-        raise OutcomesStoreUnavailable(
-            "DATABASE_URL is not set — report_outcome has no persistent "
-            "store to write to. This is a deployment misconfiguration, "
-            "not a degraded-but-working state; see docs/mcp-server-spec.md."
-        )
-    conn = psycopg.connect(DATABASE_URL)
-    try:
+    with _db_connect() as conn:
         conn.execute(_SCHEMA)
+        conn.execute(_MIGRATE)
         yield conn
-        conn.commit()
-    finally:
-        conn.close()
 
 
-def record_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None) -> dict:
+def record_outcome(
+    agent_id: int,
+    outcome: str,
+    evidence_ref: str | None = None,
+    verified_subject: str | None = None,
+) -> dict:
     """Store one self-reported outcome. Returns what was stored, not a
     trust score — this never computes or returns anything that looks
     like a verdict, since nothing here has been independently checked.
+
+    verified_subject: the wallet address from the caller's OAuth token
+    (docs/oauth-trust-spec.md), or None for calls made before the OAuth
+    mechanism shipped or through a transport that doesn't carry one.
     """
     if outcome not in _VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(_VALID_OUTCOMES)}, got {outcome!r}")
@@ -75,9 +79,9 @@ def record_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
     reported_at = datetime.now(timezone.utc)
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO reported_outcomes (agent_id, outcome, evidence_ref, reported_at) "
-            "VALUES (%s, %s, %s, %s)",
-            (agent_id, outcome, evidence_ref, reported_at),
+            "INSERT INTO reported_outcomes (agent_id, outcome, evidence_ref, reported_at, verified_subject) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (agent_id, outcome, evidence_ref, reported_at, verified_subject),
         )
 
     return {
@@ -85,6 +89,7 @@ def record_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
         "outcome": outcome,
         "evidence_ref": evidence_ref,
         "reported_at": reported_at.isoformat(),
+        "verified_subject": verified_subject,
         "stored": True,
     }
 
