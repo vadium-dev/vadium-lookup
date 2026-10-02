@@ -100,8 +100,10 @@ for whoever's doing the connecting, not a per-call one:
   `DATABASE_URL` to be set. Self-reported, explicitly never blended
   into the ERC-8004 numbers (see `docs/mcp-server-spec.md`'s
   "Anti-gaming" section for why), but as of the OAuth mechanism, each
-  report is tied to the wallet address that completed that connection's
-  sign-in step — not verified to own any on-chain identity (see
-  `docs/oauth-trust-spec.md` for why that check was deliberately
-  dropped), just a stable identity across every report that connection
-  makes, instead of none at all.
+  report is tied to whatever identity completed that connection's
+  sign-in step — by default a verified Google email address, or
+  (`VADIUM_AUTH_METHOD=wallet`) a wallet address proven by signature,
+  not verified to own any on-chain identity either way (see
+  `docs/oauth-trust-spec.md` for the full history of that decision) —
+  just a stable identity across every report that connection makes,
+  instead of none at all.

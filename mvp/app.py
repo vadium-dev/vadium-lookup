@@ -25,7 +25,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from mvp.lookup import lookup
 from mvp.mcp_server import mcp
-from mvp.oauth_provider import verify_identity_page, verify_identity_submit
+from mvp.oauth_provider import google_callback, verify_identity_page, verify_identity_submit
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -98,15 +98,16 @@ app = FastAPI(
 # sub-app defaults to routing at "/mcp" *internally*, which combined with
 # mounting it at "/mcp" below would serve the real endpoint at /mcp/mcp,
 # not /mcp. Verified directly against a running instance, not assumed.
-# The human half of the OAuth /authorize step (docs/oauth-trust-spec.md):
-# VadiumOAuthProvider.authorize() redirects here instead of to a real
-# third-party IdP. Plain Starlette routes, not FastAPI path operations,
-# since they're returning raw HTML/JSON rather than being part of this
-# app's own schema. Registered here (before the root mount at the
-# bottom of this file), not that it matters for these two paths
-# specifically — they don't collide with anything inside _mcp_app — but
-# kept alongside the rest of this app's own route definitions for
-# readability.
+# The human half of /authorize (docs/oauth-trust-spec.md). Two
+# identity-proofing paths coexist here: Google Sign-In (the active
+# default — VadiumOAuthProvider.authorize() redirects straight to
+# Google itself, and google_callback is where Google redirects back
+# to), and the original wallet-signature page (verify_identity_page /
+# verify_identity_submit) — fully intact but only reached if
+# VADIUM_AUTH_METHOD=wallet is set. Plain Starlette routes, not FastAPI
+# path operations, since they return raw HTML/JSON/redirects rather
+# than being part of this app's own schema.
+app.add_route("/oauth/google/callback", google_callback, methods=["GET"])
 app.add_route("/oauth/verify-identity", verify_identity_page, methods=["GET"])
 app.add_route("/oauth/verify-identity/submit", verify_identity_submit, methods=["POST"])
 

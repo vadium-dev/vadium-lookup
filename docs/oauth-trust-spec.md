@@ -29,7 +29,50 @@ per-call one: a Dots/ChatGPT user completes the OAuth connection once
 further friction. The two-endpoint split documented in an earlier draft
 of this spec was not built.
 
-## What the wallet-signature step actually proves (corrected 2026-10-02)
+## Identity mechanism, second revision: Google Sign-In (2026-10-02)
+
+After the wallet-signature design below shipped and was fully tested,
+a follow-up question exposed a real adoption blocker in it: completing
+`personal_sign` requires a browser wallet *extension already installed*
+(MetaMask or similar) — not just "any browser." Most of Dots' actual
+audience (people paying for ChatGPT Pro to hire agents, not necessarily
+crypto-native people) won't have one. Confirmed this wasn't a minor
+friction point but a hard requirement before deciding what to do about
+it.
+
+Decision: switch the **active default** identity-proofing step to
+**Google Sign-In** (`mvp/google_oauth.py`) — a real third-party OIDC
+provider, which is exactly the pattern
+`OAuthAuthorizationServerProvider.authorize()`'s own docstring
+describes (redirect to a third party, exchange on the way back), rather
+than the custom page the wallet flow uses. Google verifies the email
+for us; for a caller already signed into Google in their browser, this
+can be a single click — lower friction than the wallet flow, not just
+less exclusionary. `subject` on the issued token becomes the verified
+email address instead of a wallet address.
+
+**The wallet-signature flow was not removed.** Per explicit instruction,
+it stays fully implemented and tested (`mvp/identity_proof.py`, the
+`/oauth/verify-identity` page) but dormant — selected only by setting
+`VADIUM_AUTH_METHOD=wallet` (default: `google`). Both paths write to the
+exact same `subject` column and the exact same downstream code; nothing
+about `report_outcome` or `check_agent_trust` needs to know which one
+produced a given token.
+
+**Live deployment note**: Google OAuth requires a real client ID/secret
+from a Google Cloud project (Pranava has an existing one this will be
+added to — not yet done as of this writing). Until that exists, the
+Hetzner deployment is pinned to `VADIUM_AUTH_METHOD=wallet` via
+`docker-compose.yml`'s own default, specifically so a missing Google
+credential doesn't silently break every new connection attempt. Flip it
+once the credentials are in place.
+
+A misconfigured Google setup fails as a clean OAuth `temporarily_unavailable`
+error at `/authorize` (`GoogleOAuthNotConfigured`, caught and converted
+in `VadiumOAuthProvider.authorize()`), not an unhandled 500 — this was
+deliberately exercised before shipping, not assumed to be fine.
+
+## What the wallet-signature step actually proves (corrected 2026-10-02, now the non-default path)
 
 The original version of this spec required the signing wallet to
 already own an ERC-8004 agent identity (`IdentityRegistry.balanceOf(address)

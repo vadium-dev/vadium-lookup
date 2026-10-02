@@ -51,6 +51,30 @@ then `docker compose build vadium-lookup && docker compose up -d` from
 `/opt/vadium-lookup/`. No CI/CD — this is a manual deploy, same as
 Paperclip's own.
 
+**Real mistake made during this session, worth repeating so it isn't
+repeated again**: rsyncing the repo root into `/opt/vadium-lookup/app/`
+also copies the repo's own `docker-compose.yml` to
+`/opt/vadium-lookup/app/docker-compose.yml` — a path Docker Compose
+never reads. The file that's actually live is the separate copy at
+`/opt/vadium-lookup/docker-compose.yml`, one level up. Editing the
+repo's `docker-compose.yml` (to add new environment variables, say) and
+rsyncing does **not** update the live one — this cost real time during
+the OAuth work (2026-10-02): a new env var silently never reached the
+container across several redeploys, because only the app code was
+actually being updated, not the compose file controlling what env vars
+it receives. After editing `docker-compose.yml`, copy it to
+`/opt/vadium-lookup/docker-compose.yml` explicitly:
+```
+cat docker-compose.yml | sed 's|build: \.$|build: ./app|' | ssh atesta-paperclip "cat > /opt/vadium-lookup/docker-compose.yml"
+```
+then `docker compose up -d` to pick it up. When something that was
+just deployed doesn't seem to take effect, checking
+`docker exec <container> python3 -c "import os; print(os.environ.get('<VAR>'))"`
+against what's actually in the live compose file is the fast way to
+catch this — `docker exec <container> env` can look consistent while
+still not matching what the application process itself was actually
+started with if there's any doubt about which compose file produced it.
+
 ## nginx
 
 `/etc/nginx/sites-available/vadium-lookup`, symlinked into

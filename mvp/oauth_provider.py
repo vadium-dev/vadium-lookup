@@ -10,16 +10,18 @@ ownership check behind that.
 """
 
 import json
+import os
 from datetime import datetime, timezone
 
 from pydantic import AnyUrl
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    AuthorizeError,
     OAuthAuthorizationServerProvider,
     RefreshToken,
     RegistrationError,
@@ -27,7 +29,21 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from mvp import identity_proof, oauth_store
+from mvp import google_oauth, identity_proof, oauth_store
+
+# Which identity-proofing step /authorize redirects to. "google" (the
+# default) redirects to a real Google OAuth consent screen — the
+# genuine instance of the third-party-IdP pattern
+# OAuthAuthorizationServerProvider.authorize()'s own docstring
+# describes, chosen over the original wallet-signature design because
+# it needs no wallet install: anyone with a Google account (virtually
+# everyone) can complete it, often in one click if already signed in.
+# "wallet" keeps the original personal_sign flow (mvp/identity_proof.py)
+# fully intact and working — deliberately NOT deleted, just not the
+# default — in case a stronger, platform-independent identity proof is
+# wanted later for some callers. Switch with VADIUM_AUTH_METHOD=wallet,
+# no code change needed.
+AUTH_METHOD = os.environ.get("VADIUM_AUTH_METHOD", "google")
 
 
 class VadiumOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
@@ -63,7 +79,20 @@ class VadiumOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             code_challenge=params.code_challenge,
             resource=params.resource,
         )
-        return f"{self.verify_page_url}?request_id={request_id}"
+        if AUTH_METHOD == "wallet":
+            return f"{self.verify_page_url}?request_id={request_id}"
+        # default: "google" — request_id travels as Google's own `state`
+        # param so /oauth/google/callback can find the right pending
+        # authorization when Google redirects back.
+        try:
+            return google_oauth.build_authorize_url(state=request_id)
+        except google_oauth.GoogleOAuthNotConfigured as e:
+            # A clean OAuth-spec error instead of an unhandled 500 — this
+            # is the real, current state until Google credentials exist
+            # (see docs/oauth-trust-spec.md), not a hypothetical to guard
+            # against defensively.
+            oauth_store.delete_pending_authorization(request_id)
+            raise AuthorizeError(error="temporarily_unavailable", error_description=str(e)) from e
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -279,3 +308,52 @@ async def verify_identity_submit(request: Request) -> JSONResponse:
 
     redirect_url = construct_redirect_uri(pending["redirect_uri"], code=code, state=pending["state"])
     return JSONResponse({"redirect_url": redirect_url})
+
+
+# ============================================================
+# Google Sign-In callback (the default identity-proofing step — see
+# AUTH_METHOD above). Google itself already navigated the user's
+# browser here, so — unlike the wallet page's submit handler, which had
+# to avoid fetch()/CORS redirect quirks — a plain server-side 302 back
+# to the original client's redirect_uri is the natural, simplest thing
+# to do; there's no client-side JS step in this leg at all.
+# ============================================================
+
+async def google_callback(request: Request) -> RedirectResponse:
+    request_id = request.query_params.get("state", "")
+    code = request.query_params.get("code", "")
+    error = request.query_params.get("error")
+
+    pending = oauth_store.get_pending_authorization(request_id)
+    if not pending:
+        return HTMLResponse(
+            "<p>This sign-in link has expired or is invalid. "
+            "Please restart the connection from the app you were connecting.</p>",
+            status_code=400,
+        )
+
+    if error or not code:
+        redirect_url = construct_redirect_uri(
+            pending["redirect_uri"], error="access_denied", state=pending["state"]
+        )
+        oauth_store.delete_pending_authorization(request_id)
+        return RedirectResponse(redirect_url, status_code=302)
+
+    try:
+        email = google_oauth.exchange_code_for_email(code)
+    except (google_oauth.GoogleOAuthNotConfigured, google_oauth.GoogleVerificationFailed) as e:
+        return HTMLResponse(f"<p>Could not verify your Google account: {e}</p>", status_code=502)
+
+    auth_code = oauth_store.create_authorization_code(
+        client_id=pending["client_id"],
+        redirect_uri=pending["redirect_uri"],
+        redirect_uri_provided_explicitly=pending["redirect_uri_provided_explicitly"],
+        scopes=pending["scopes"],
+        code_challenge=pending["code_challenge"],
+        resource=pending["resource"],
+        subject=email,
+    )
+    oauth_store.delete_pending_authorization(request_id)
+
+    redirect_url = construct_redirect_uri(pending["redirect_uri"], code=auth_code, state=pending["state"])
+    return RedirectResponse(redirect_url, status_code=302)

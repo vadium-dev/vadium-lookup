@@ -16,6 +16,14 @@ services:
       - CDP_API_KEY_SECRET=${CDP_API_KEY_SECRET}
       - ERC8004_AGENT_ID=${ERC8004_AGENT_ID}
       - X402_PAY_TO_ADDRESS=${X402_PAY_TO_ADDRESS}
+      # OAuth identity-proofing (docs/oauth-trust-spec.md). VADIUM_AUTH_METHOD
+      # defaults to "google" in code but is pinned to "wallet" here until
+      # real Google OAuth credentials exist — set the three GOOGLE_OAUTH_*
+      # vars and flip this to "google" (or unset it) once they do.
+      - VADIUM_AUTH_METHOD=${VADIUM_AUTH_METHOD:-wallet}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI}
     ports:
       - '127.0.0.1:3300:3300'
     depends_on:
