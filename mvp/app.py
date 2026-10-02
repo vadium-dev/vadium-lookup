@@ -43,7 +43,7 @@ _STATIC_DIR = Path(__file__).parent / "static"
 # (confirmed: worked locally, broke on first live request against
 # vadium-lookup.onrender.com). The fix is not to disable the protection —
 # it's to scope it to the real hostnames this service actually serves.
-_ALLOWED_HOSTS = ["vadium-lookup.onrender.com", "vadium-lookup.atesta.io", "127.0.0.1:*", "localhost:*"]
+_ALLOWED_HOSTS = ["vadium-lookup.atesta.io", "127.0.0.1:*", "localhost:*"]
 _mcp_app = mcp.streamable_http_app(
     streamable_http_path="/",
     transport_security=TransportSecuritySettings(
