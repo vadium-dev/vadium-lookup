@@ -97,6 +97,26 @@ actually supports the claim). That's real work with no backend to wrap
 today — logged as a self-reported, diversity-weighted, clearly-labeled
 signal for now, upgraded later if real usage shows it's worth it.
 
+**Update, 2026-10-02 — caller identity exists now, and both tools got
+richer (see `docs/oauth-trust-spec.md` and `mvp/trust_lookups.py`)**:
+the "no on-chain identity at all" line above is no longer quite true —
+OAuth now ties every call to a stable `verified_subject` (a Google
+email by default, or a wallet address in the dormant opt-in wallet
+mode). That still isn't the ERC-8004-identified integrator this section
+imagined, so the anti-gaming stance above is unchanged: self-reports
+stay separate, unweighted, never blended into the ERC-8004 numbers.
+What it does enable: `check_agent_trust` now accepts optional `task_id`
+/ `task_description`, and is persisted for the first time (previously a
+pure stateless read with no record at all); `report_outcome` gained the
+same two fields plus `detail` (free-text explanation, distinct from
+`evidence_ref`) and returns `preceded_by_lookup` — the specific prior
+`check_agent_trust` call it correlates to, matched by `task_id` when the
+caller supplies and reuses one, or heuristically by
+(`verified_subject`, `agent_id`, most-recent-prior-timestamp) otherwise.
+`summarize()`'s output grew a `recent_issues` list — the last few
+non-"completed" reports' actual detail text, not just a bare count,
+since "2 disputed" on its own says nothing about what went wrong.
+
 ## Hosting
 
 Mount on the existing `vadium-lookup` FastAPI app (`mvp/app.py`), not a

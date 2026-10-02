@@ -20,7 +20,7 @@ from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, Re
 from mcp.server.mcpserver import MCPServer
 
 from mvp.lookup import lookup
-from mvp import outcomes
+from mvp import outcomes, trust_lookups
 from mvp.oauth_provider import VadiumOAuthProvider
 
 # Both tools sit behind the same OAuth connection (docs/oauth-trust-spec.md)
@@ -79,7 +79,7 @@ mcp = MCPServer(
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def check_agent_trust(agent_id: int) -> dict:
+def check_agent_trust(agent_id: int, task_id: str | None = None, task_description: str | None = None) -> dict:
     """Look up an ERC-8004 agent's trust record before hiring or paying it.
 
     Returns both the raw ERC-8004 reputation number (the same one every
@@ -99,12 +99,33 @@ def check_agent_trust(agent_id: int) -> dict:
 
     Args:
         agent_id: The ERC-8004 agentId — an on-chain identity (ERC-721 token id).
+        task_id: Optional, your own identifier for the task you're doing
+            this lookup for. Reuse the exact same value on a later
+            report_outcome call about the same task and we'll link the
+            two exactly; if you don't have one, or forget to reuse it,
+            report_outcome still finds this lookup by matching your most
+            recent prior check on the same agent instead.
+        task_description: Optional short description of what you're
+            trying to accomplish (e.g. "booking a same-day EU logistics
+            courier") — helps us understand what actually drives lookups.
+            Purely informational; never affects the result returned.
     """
-    return lookup(agent_id)
+    result = lookup(agent_id)
+    access_token = get_access_token()
+    verified_subject = access_token.subject if access_token else None
+    trust_lookups.record_lookup(agent_id, task_id, task_description, verified_subject)
+    return result
 
 
 @mcp.tool()
-def report_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None) -> dict:
+def report_outcome(
+    agent_id: int,
+    outcome: str,
+    evidence_ref: str | None = None,
+    task_id: str | None = None,
+    task_description: str | None = None,
+    detail: str | None = None,
+) -> dict:
     """Report how a completed transaction with an ERC-8004 agent actually
     went, after the fact — for an integrator who already called
     check_agent_trust before hiring or paying this agent.
@@ -112,13 +133,13 @@ def report_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
     Self-reported, still never blended into check_agent_trust's raw or
     Sybil-adjusted ERC-8004 numbers (see docs/mcp-server-spec.md's
     "Anti-gaming" section) — but as of the OAuth mechanism
-    (docs/oauth-trust-spec.md), each report is now tied to the wallet
-    address that completed this connection's sign-in step, recorded
-    alongside the report rather than being fully anonymous. That address
-    is not verified to own any particular on-chain identity — seeing
-    "docs/oauth-trust-spec.md" above for why that check was deliberately
-    not required — only that it's the same caller across every report
-    this connection makes.
+    (docs/oauth-trust-spec.md), each report is now tied to the identity
+    that completed this connection's sign-in step, recorded alongside
+    the report rather than being fully anonymous. That identity is not
+    verified to own any particular on-chain presence — see
+    docs/oauth-trust-spec.md for why that check was deliberately not
+    required — only that it's the same caller across every report this
+    connection makes.
 
     Deliberately NOT marked read-only: this writes a new record, so
     OpenAI's and any other compliant MCP host's approval model requires
@@ -131,10 +152,30 @@ def report_outcome(agent_id: int, outcome: str, evidence_ref: str | None = None)
         evidence_ref: Optional URI or hash pointing at supporting evidence
             (a transcript, a delivered-artifact hash) — the same
             evidence-URI pattern ERC-8004's giveFeedback() already uses.
+        task_id: Optional, the same value you passed to check_agent_trust
+            for this same task, if you called it — lets us link this
+            report back to that lookup exactly. If omitted, or it doesn't
+            match any recorded lookup, we fall back to your most recent
+            prior check_agent_trust call on this same agent.
+        task_description: Optional short description of the task, same
+            idea as check_agent_trust's.
+        detail: Optional free text explaining what actually happened —
+            distinct from evidence_ref, which points AT evidence rather
+            than describing it. Especially worth filling in when outcome
+            isn't "completed": "disputed" alone doesn't say what went
+            wrong; this does, and gets surfaced back to future callers.
     """
     access_token = get_access_token()
     verified_subject = access_token.subject if access_token else None
-    return outcomes.record_outcome(agent_id, outcome, evidence_ref, verified_subject=verified_subject)
+    return outcomes.record_outcome(
+        agent_id,
+        outcome,
+        evidence_ref,
+        verified_subject=verified_subject,
+        task_id=task_id,
+        task_description=task_description,
+        detail=detail,
+    )
 
 
 def main():
