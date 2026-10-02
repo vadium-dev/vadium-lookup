@@ -72,8 +72,9 @@ Exposed two ways — pick based on whether the caller wants a local
 subprocess or a network connection:
 
 **Remote (streamable-http, what ChatGPT/Dots and most real clients
-use)**: `https://vadium-lookup.atesta.io/mcp` — no install needed,
-point any MCP-over-HTTP client at it directly.
+use)**: `https://vadium-lookup.atesta.io/mcp` — requires completing an
+OAuth connection first (see below); point any MCP-over-HTTP client at
+it, it'll be redirected through the connection flow automatically.
 
 **Local (stdio, for Claude Desktop-style configs)**:
 
@@ -84,11 +85,23 @@ vadium-lookup-mcp
 ```
 
 (Not yet published to PyPI — `pip install vadium-lookup` will work once
-it is, this is the real, currently-working install path.)
+it is, this is the real, currently-working install path. OAuth only
+applies to the remote transport — stdio has no auth layer, since it's
+already a local, already-trusted subprocess.)
 
-Two tools: `check_agent_trust(agent_id)` (read-only, same raw-plus-
-Sybil-adjusted result as the HTTP endpoint, plus any self-reported
-outcomes — see below), and `report_outcome(agent_id, outcome,
-evidence_ref)` (a write — not read-only, requires `DATABASE_URL` to be
-set, self-reported and explicitly never blended into the ERC-8004
-numbers; see `docs/mcp-server-spec.md`'s "Anti-gaming" section for why).
+Two tools, both gated behind the same OAuth connection on the remote
+transport (`docs/oauth-trust-spec.md`) — a one-time per-connection step
+for whoever's doing the connecting, not a per-call one:
+
+- `check_agent_trust(agent_id)` — read-only, same raw-plus-Sybil-
+  adjusted result as the HTTP endpoint, plus any self-reported outcomes
+  (see below).
+- `report_outcome(agent_id, outcome, evidence_ref)` — a write, requires
+  `DATABASE_URL` to be set. Self-reported, explicitly never blended
+  into the ERC-8004 numbers (see `docs/mcp-server-spec.md`'s
+  "Anti-gaming" section for why), but as of the OAuth mechanism, each
+  report is tied to the wallet address that completed that connection's
+  sign-in step — not verified to own any on-chain identity (see
+  `docs/oauth-trust-spec.md` for why that check was deliberately
+  dropped), just a stable identity across every report that connection
+  makes, instead of none at all.
