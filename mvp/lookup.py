@@ -4,7 +4,7 @@ MVP — see docs/IDEA.md for why it's free and what it's actually testing
 (discoverability, not revenue).
 """
 
-from mvp import erc8004_client, own_ledger, diversity
+from mvp import erc8004_client, own_ledger, diversity, outcomes
 
 
 def lookup(agent_id: int, known_reviewers: list[str] | None = None) -> dict:
@@ -17,6 +17,10 @@ def lookup(agent_id: int, known_reviewers: list[str] | None = None) -> dict:
     result = {
         "agent_id": agent_id,
         "vadium_native": own_ledger.summarize(agent_identity=str(agent_id)),
+        # Kept separate from vadium_native and erc8004_public on purpose —
+        # self-reported, unverified, never blended into either's numbers.
+        # See mvp/outcomes.py and docs/mcp-server-spec.md.
+        "self_reported": outcomes.summarize(agent_id),
     }
 
     reviewers = known_reviewers

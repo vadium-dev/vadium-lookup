@@ -2,6 +2,12 @@ fastapi==0.141.1
 uvicorn[standard]==0.54.0
 web3==8.0.0
 requests==2.34.2
+# Was listed in pyproject.toml but missing here — latent until mvp/app.py
+# started importing mvp.mcp_server to mount the streamable-http transport
+# (docs/mcp-server-spec.md); `pip install -r requirements.txt` alone would
+# otherwise fail on that import. Fixed 2026-10-02, found by actually
+# running the documented install path, not assumed fixed.
+mcp[cli]>=2.2.0
 
 # Only used by the optional paid /lookup-paid route — inert (route never
 # registered) unless X402_PAY_TO_ADDRESS is set in the environment.

@@ -14,6 +14,7 @@ Then:
 import os
 import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,8 +22,25 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from mvp.lookup import lookup
+from mvp.mcp_server import mcp
 
 _STATIC_DIR = Path(__file__).parent / "static"
+
+# Mounting a streamable-http MCP app under FastAPI doesn't work with a
+# bare app.mount() — confirmed by actually running it, not assumed: it
+# throws "Task group is not initialized. Make sure to use run()." on the
+# first real request, because FastAPI's mount() does not propagate a
+# mounted sub-app's own lifespan, and the MCP session manager needs its
+# task group started via mcp.session_manager.run() for the app's actual
+# lifetime. This lifespan wrapper is that fix, not boilerplate.
+_mcp_app = mcp.streamable_http_app(streamable_http_path="/")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
 
 app = FastAPI(
     title="Vadium Lookup (MVP)",
@@ -33,7 +51,20 @@ app = FastAPI(
         "cluster). No payment required — this endpoint exists to test "
         "discoverability, not to generate revenue."
     ),
+    lifespan=_lifespan,
 )
+
+# Mounted, not a separate service — see docs/mcp-server-spec.md for why.
+# Same `mcp` instance the stdio console script (`vadium-lookup-mcp`) runs;
+# this just adds a second, network-reachable transport for the same
+# tools, so a remote agent (e.g. a ChatGPT "Dot") can call check_agent_trust
+# directly instead of needing a local subprocess.
+#
+# streamable_http_path="/" (set above) is required, not cosmetic: the
+# sub-app defaults to routing at "/mcp" *internally*, which combined with
+# mounting it at "/mcp" below would serve the real endpoint at /mcp/mcp,
+# not /mcp. Verified directly against a running instance, not assumed.
+app.mount("/mcp", _mcp_app)
 
 # Abuse guard, not a paywall: a simple fixed-window limiter, per caller —
 # fixed 2026-09-27, was keyed "global" (one shared bucket for every
