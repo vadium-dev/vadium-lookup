@@ -29,35 +29,62 @@ BASESCAN_API_URL = "https://api.basescan.org/api"
 _funder_cache: dict[str, str | None] = {}
 
 
+class BasescanUnavailable(Exception):
+    """The explorer API call failed or returned a business-logic error
+    (e.g. a plan/quota rejection, HTTP 200 with status=0). Distinct from
+    "returned zero transactions," which is a legitimate funder=None
+    result. Callers must degrade to the same honest unweighted path as
+    a missing API key — never silently skip the one address that failed
+    while treating the rest as successfully clustered.
+    """
+
+
 def _first_funder(address: str) -> str | None:
     """The sender of this address's earliest incoming native-token
     transfer. Cached in-process since the same funder/reviewer shows up
     across many lookups.
+
+    Raises BasescanUnavailable (rather than returning None) on any API
+    failure, so the caller can tell "this address has no funder" apart
+    from "we couldn't ask" — conflating those two previously turned a
+    BaseScan outage into a 502 for the whole lookup endpoint instead of
+    the designed honest-degrade path.
     """
     if address in _funder_cache:
         return _funder_cache[address]
     if not BASESCAN_API_KEY:
         return None
 
-    resp = requests.get(
-        BASESCAN_API_URL,
-        params={
-            "module": "account",
-            "action": "txlist",
-            "address": address,
-            "startblock": 0,
-            "endblock": 99999999,
-            "page": 1,
-            "offset": 1,
-            "sort": "asc",
-            "apikey": BASESCAN_API_KEY,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = requests.get(
+            BASESCAN_API_URL,
+            params={
+                "module": "account",
+                "action": "txlist",
+                "address": address,
+                "startblock": 0,
+                "endblock": 99999999,
+                "page": 1,
+                "offset": 1,
+                "sort": "asc",
+                "apikey": BASESCAN_API_KEY,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        raise BasescanUnavailable(str(e)) from e
+
     result = data.get("result")
-    funder = result[0]["from"].lower() if result and isinstance(result, list) and result else None
+    if not isinstance(result, list):
+        # status=0 with a string result: a business-logic error (bad key,
+        # plan/quota rejection, deprecated-endpoint notice) rather than
+        # "zero transactions," which BaseScan represents as status=1 with
+        # an empty list.
+        raise BasescanUnavailable(str(result))
+
+    funder = result[0]["from"].lower() if result else None
     _funder_cache[address] = funder
     time.sleep(0.21)  # Basescan free tier: 5 req/s
     return funder
@@ -73,9 +100,16 @@ def cluster_reviewers(addresses: list[str]) -> tuple[dict[str, list[str]], bool]
         return {a: [a] for a in addresses}, False
 
     clusters: dict[str, list[str]] = {}
-    for addr in addresses:
-        funder = _first_funder(addr) or addr  # no discoverable funder: treat as its own root
-        clusters.setdefault(funder, []).append(addr)
+    try:
+        for addr in addresses:
+            funder = _first_funder(addr) or addr  # no discoverable funder: treat as its own root
+            clusters.setdefault(funder, []).append(addr)
+    except BasescanUnavailable:
+        # Whole-batch bail-out, not per-address: a mid-batch API failure
+        # must not leave some addresses genuinely clustered and others
+        # silently treated as their own root, which would present a
+        # partially-broken clustering as if it were a complete one.
+        return {a: [a] for a in addresses}, False
     return clusters, True
 
 
@@ -115,8 +149,9 @@ def adjusted_score(feedback: list[dict]) -> dict:
             "raw_count": len(feedback), "raw_mean": raw_mean,
             "effective_independent_reviewers": None, "adjusted_mean": None,
             "clustering_ran": False,
-            "note": "BASESCAN_API_KEY not configured — cannot compute the "
-                    "Sybil-adjusted number, showing raw only so it isn't "
+            "note": "could not compute the Sybil-adjusted number (no "
+                    "BASESCAN_API_KEY configured, or the explorer API "
+                    "call failed) — showing raw only so it isn't "
                     "mistaken for an adjusted one",
         }
 
