@@ -21,6 +21,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from mcp.server.transport_security import TransportSecuritySettings
+
 from mvp.lookup import lookup
 from mvp.mcp_server import mcp
 
@@ -33,7 +35,24 @@ _STATIC_DIR = Path(__file__).parent / "static"
 # mounted sub-app's own lifespan, and the MCP session manager needs its
 # task group started via mcp.session_manager.run() for the app's actual
 # lifetime. This lifespan wrapper is that fix, not boilerplate.
-_mcp_app = mcp.streamable_http_app(streamable_http_path="/")
+#
+# transport_security must be set explicitly too — also found by actually
+# deploying, not assumed: the SDK auto-enables DNS-rebinding protection
+# scoped to 127.0.0.1/localhost ONLY when `host` is left at its default,
+# which silently 421s every real request once this is actually deployed
+# (confirmed: worked locally, broke on first live request against
+# vadium-lookup.onrender.com). The fix is not to disable the protection —
+# it's to scope it to the real hostnames this service actually serves.
+_ALLOWED_HOSTS = ["vadium-lookup.onrender.com", "vadium-lookup.atesta.io", "127.0.0.1:*", "localhost:*"]
+_mcp_app = mcp.streamable_http_app(
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_ALLOWED_HOSTS,
+        allowed_origins=[f"https://{h}" for h in _ALLOWED_HOSTS if "127.0.0.1" not in h and "localhost" not in h]
+        + ["http://127.0.0.1:*", "http://localhost:*"],
+    ),
+)
 
 
 @asynccontextmanager
