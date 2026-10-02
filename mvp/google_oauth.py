@@ -23,8 +23,14 @@ import requests
 
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-GOOGLE_OAUTH_REDIRECT_URI = os.environ.get(
-    "GOOGLE_OAUTH_REDIRECT_URI", "https://vadium-lookup.atesta.io/oauth/google/callback"
+# `or` rather than os.environ.get's own default param — found by testing
+# the real deployment: docker-compose's `${GOOGLE_OAUTH_REDIRECT_URI}`
+# (no `:-default` in the compose file) sets this to an empty string,
+# not absent, when .env doesn't define it. os.environ.get(key, default)
+# only falls back on an ABSENT key, so an empty string silently won
+# over the intended default and broke the redirect_uri sent to Google.
+GOOGLE_OAUTH_REDIRECT_URI = (
+    os.environ.get("GOOGLE_OAUTH_REDIRECT_URI") or "https://vadium-lookup.atesta.io/oauth/google/callback"
 )
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
