@@ -91,12 +91,21 @@ already a local, already-trusted subprocess.)
 
 Two tools, both gated behind the same OAuth connection on the remote
 transport (`docs/oauth-trust-spec.md`) — a one-time per-connection step
-for whoever's doing the connecting, not a per-call one:
+for whoever's doing the connecting, not a per-call one. Both take
+`ecosystem` + `external_id` rather than a bare ERC-8004 `agent_id` —
+generalized 2026-10-03 (`docs/seller-normalization-spec.md`) to cover
+any "seller" an agent might hire, not just on-chain ones: `ecosystem` is
+one of `"erc8004"`, `"chatgpt_apps"`, `"hubspot_marketplace"`,
+`"zendesk_marketplace"`, `"muse"` (`mvp/ecosystems.py`), and
+`external_id` is that ecosystem's own native ID (an ERC-8004 `agentId`,
+a ChatGPT app's `"plugins_<hash>"`, etc.), always passed as a string.
 
-- `check_agent_trust(agent_id)` — read-only, same raw-plus-Sybil-
-  adjusted result as the HTTP endpoint, plus any self-reported outcomes
-  (see below).
-- `report_outcome(agent_id, outcome, evidence_ref)` — a write, requires
+- `check_agent_trust(ecosystem, external_id)` — read-only, same
+  raw-plus-Sybil-adjusted result as the HTTP endpoint for
+  `ecosystem="erc8004"`, plus any self-reported outcomes (see below).
+  Other ecosystems have no on-chain registry, so that section is marked
+  not applicable rather than silently empty.
+- `report_outcome(ecosystem, external_id, outcome, evidence_ref)` — a write, requires
   `DATABASE_URL` to be set. Self-reported, explicitly never blended
   into the ERC-8004 numbers (see `docs/mcp-server-spec.md`'s
   "Anti-gaming" section for why), but as of the OAuth mechanism, each

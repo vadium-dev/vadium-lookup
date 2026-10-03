@@ -19,8 +19,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 
-from mvp.lookup import lookup
-from mvp import outcomes, trust_lookups
+from mvp import ecosystems, outcomes, seller_lookup, trust_lookups
 from mvp.oauth_provider import VadiumOAuthProvider
 
 # Both tools sit behind the same OAuth connection (docs/oauth-trust-spec.md)
@@ -53,13 +52,14 @@ oauth_provider = VadiumOAuthProvider(verify_page_url=_VERIFY_PAGE_URL)
 mcp = MCPServer(
     name="vadium-lookup",
     description=(
-        "Free trust-record lookup for an ERC-8004 agentId: own-ledger history "
-        "plus ERC-8004's public reputation feedback, shown both raw and "
-        "Sybil-adjusted (diversity-weighted by funding cluster, so a group of "
-        "reviewers tracing to the same funding source counts closer to one "
-        "independent voice than many). No payment required."
+        "Free trust-record lookup for any seller an agent might hire or "
+        "pay — an ERC-8004 on-chain agent, a ChatGPT-connected app, or "
+        "any other supported ecosystem (mvp/ecosystems.py). ERC-8004 "
+        "sellers additionally get ERC-8004's own public reputation "
+        "feedback, shown both raw and Sybil-adjusted (diversity-weighted "
+        "by funding cluster). No payment required."
     ),
-    version="0.3.0",
+    version="0.4.0",
     auth_server_provider=oauth_provider,
     auth=AuthSettings(
         issuer_url=_ISSUER_URL,
@@ -79,17 +79,31 @@ mcp = MCPServer(
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def check_agent_trust(agent_id: int, task_id: str | None = None, task_description: str | None = None) -> dict:
-    """Look up an ERC-8004 agent's trust record before hiring or paying it.
+def check_agent_trust(
+    ecosystem: str,
+    external_id: str,
+    task_id: str | None = None,
+    task_description: str | None = None,
+    seller_name: str | None = None,
+    seller_website: str | None = None,
+) -> dict:
+    """Look up a seller's trust record before hiring or paying it — an
+    ERC-8004 on-chain agent, a ChatGPT-connected app, or any other
+    supported ecosystem (see `ecosystem` below).
 
-    Returns both the raw ERC-8004 reputation number (the same one every
-    other lookup tool shows as-is) and a Sybil-adjusted version that
-    discounts reviewer clusters tracing back to a shared funding source —
-    real, measured evidence exists that most ERC-8004 feedback on Base is
-    exactly this kind of coordinated cluster, not independent reviewers.
-    Also returns any self-reported outcomes for this agent (see
-    report_outcome below), kept separate and labeled unverified — never
-    blended into the raw or Sybil-adjusted numbers.
+    For ecosystem="erc8004", returns the raw ERC-8004 reputation number
+    (the same one every other lookup tool shows as-is) and a
+    Sybil-adjusted version that discounts reviewer clusters tracing back
+    to a shared funding source — real, measured evidence exists that
+    most ERC-8004 feedback on Base is exactly this kind of coordinated
+    cluster, not independent reviewers. Other ecosystems have no
+    on-chain registry to query, so that section is explicitly marked
+    not applicable rather than silently empty. Every ecosystem gets any
+    self-reported outcomes for this seller (see report_outcome below),
+    kept separate and labeled unverified — never blended into the raw
+    or Sybil-adjusted numbers, and rolled up across any other ecosystem
+    identity confirmed to be the same real seller
+    (docs/seller-normalization-spec.md).
 
     Explicitly annotated read-only: per OpenAI's own documented approval
     model (docs/mcp-server-spec.md), this lets a calling agent invoke it
@@ -98,37 +112,62 @@ def check_agent_trust(agent_id: int, task_id: str | None = None, task_descriptio
     step; nothing after that re-prompts the user for this tool.
 
     Args:
-        agent_id: The ERC-8004 agentId — an on-chain identity (ERC-721 token id).
+        ecosystem: Which ecosystem this seller belongs to. One of:
+            "erc8004" (an on-chain agent — external_id is its numeric
+            agentId as a string), "chatgpt_apps" (a ChatGPT-connected
+            app — external_id is its "plugins_<hash>" ID, visible in
+            the app's own chatgpt.com/plugins/... URL),
+            "hubspot_marketplace", "zendesk_marketplace", "muse".
+        external_id: That ecosystem's own native identifier for the
+            seller — always passed as a string regardless of its native
+            shape (an ERC-8004 agentId is numeric on-chain, but still
+            passed here as e.g. "95910").
         task_id: Optional, your own identifier for the task you're doing
             this lookup for. Reuse the exact same value on a later
             report_outcome call about the same task and we'll link the
             two exactly; if you don't have one, or forget to reuse it,
             report_outcome still finds this lookup by matching your most
-            recent prior check on the same agent instead.
+            recent prior check on the same seller instead.
         task_description: Optional short description of what you're
             trying to accomplish (e.g. "booking a same-day EU logistics
             courier") — helps us understand what actually drives lookups.
             Purely informational; never affects the result returned.
+        seller_name: Optional display name for this seller — used only
+            the first time we see this (ecosystem, external_id) pair, to
+            label it for our own records. Safe to omit.
+        seller_website: Optional website for this seller — used only on
+            first sighting, and is what lets us notice (for human
+            review, never automatically) that the same real seller also
+            has an identity in a different ecosystem. Safe to omit, but
+            worth providing if you have it.
     """
-    result = lookup(agent_id)
+    ecosystem = ecosystems.normalize(ecosystem)
+    result = seller_lookup.check_seller_trust(ecosystem, external_id)
     access_token = get_access_token()
     verified_subject = access_token.subject if access_token else None
-    trust_lookups.record_lookup(agent_id, task_id, task_description, verified_subject)
+    trust_lookups.record_lookup(
+        ecosystem, external_id, task_id, task_description, verified_subject, seller_name, seller_website
+    )
     return result
 
 
 @mcp.tool()
 def report_outcome(
-    agent_id: int,
+    ecosystem: str,
+    external_id: str,
     outcome: str,
     evidence_ref: str | None = None,
     task_id: str | None = None,
     task_description: str | None = None,
     detail: str | None = None,
+    seller_name: str | None = None,
+    seller_website: str | None = None,
 ) -> dict:
-    """Report how a completed transaction with an ERC-8004 agent actually
-    went, after the fact — for an integrator who already called
-    check_agent_trust before hiring or paying this agent.
+    """Report how a completed transaction with a seller actually went,
+    after the fact — for an integrator who already called
+    check_agent_trust before hiring or paying this seller. Works for any
+    ecosystem check_agent_trust does (ERC-8004 on-chain agent, ChatGPT
+    app, etc.) — see `ecosystem` below.
 
     Self-reported, still never blended into check_agent_trust's raw or
     Sybil-adjusted ERC-8004 numbers (see docs/mcp-server-spec.md's
@@ -147,7 +186,13 @@ def report_outcome(
     write, not a limitation.
 
     Args:
-        agent_id: The ERC-8004 agentId this outcome is about.
+        ecosystem: Which ecosystem this seller belongs to — same values
+            as check_agent_trust's (mvp/ecosystems.py): "erc8004",
+            "chatgpt_apps", "hubspot_marketplace", "zendesk_marketplace",
+            "muse".
+        external_id: That ecosystem's own native identifier for the
+            seller, as a string — the same value you used (or would
+            use) for this seller in check_agent_trust.
         outcome: One of "completed", "disputed", "no_response".
         evidence_ref: Optional URI or hash pointing at supporting evidence
             (a transcript, a delivered-artifact hash) — the same
@@ -156,7 +201,7 @@ def report_outcome(
             for this same task, if you called it — lets us link this
             report back to that lookup exactly. If omitted, or it doesn't
             match any recorded lookup, we fall back to your most recent
-            prior check_agent_trust call on this same agent.
+            prior check_agent_trust call on this same seller.
         task_description: Optional short description of the task, same
             idea as check_agent_trust's.
         detail: Optional free text explaining what actually happened —
@@ -164,17 +209,27 @@ def report_outcome(
             than describing it. Especially worth filling in when outcome
             isn't "completed": "disputed" alone doesn't say what went
             wrong; this does, and gets surfaced back to future callers.
+        seller_name: Optional display name for this seller, same idea as
+            check_agent_trust's — used only on first sighting.
+        seller_website: Optional website for this seller, same idea as
+            check_agent_trust's — used only on first sighting, and is
+            what enables (human-reviewed, never automatic) cross-
+            ecosystem identity linking.
     """
+    ecosystem = ecosystems.normalize(ecosystem)
     access_token = get_access_token()
     verified_subject = access_token.subject if access_token else None
     return outcomes.record_outcome(
-        agent_id,
+        ecosystem,
+        external_id,
         outcome,
         evidence_ref,
         verified_subject=verified_subject,
         task_id=task_id,
         task_description=task_description,
         detail=detail,
+        seller_name=seller_name,
+        seller_website=seller_website,
     )
 
 

@@ -19,8 +19,12 @@ def lookup(agent_id: int, known_reviewers: list[str] | None = None) -> dict:
         "vadium_native": own_ledger.summarize(agent_identity=str(agent_id)),
         # Kept separate from vadium_native and erc8004_public on purpose —
         # self-reported, unverified, never blended into either's numbers.
-        # See mvp/outcomes.py and docs/mcp-server-spec.md.
-        "self_reported": outcomes.summarize(agent_id),
+        # See mvp/outcomes.py and docs/mcp-server-spec.md. outcomes.summarize
+        # is ecosystem-aware now (docs/seller-normalization-spec.md); this
+        # function's own signature stays exactly agent_id: int, unchanged,
+        # since app.py's HTTP /lookup/{agent_id} route depends on it — only
+        # the internal call below changed.
+        "self_reported": outcomes.summarize("erc8004", str(agent_id)),
     }
 
     reviewers = known_reviewers

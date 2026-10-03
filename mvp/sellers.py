@@ -92,6 +92,17 @@ def resolve_or_create_identity(
     creating both it and a fresh sellers row on first sighting. Never
     auto-merges into an existing seller even when primary_website
     matches one — see _detect_link_candidates.
+
+    Info often arrives incrementally — a bare check_agent_trust call
+    (no name/website) can create the identity before a later
+    report_outcome call supplies them, or vice versa. Found by testing:
+    silently freezing the seller's name/website at whatever the first
+    call happened to provide would permanently lose a website supplied
+    later, and skip link detection forever for that seller. So an
+    already-existing identity still gets its seller's canonical_name /
+    primary_website filled in (only when currently empty — never
+    overwritten once set) and link-detection re-run at that point, if
+    this call is the first one to actually supply a website.
     """
     website = _normalize_website(primary_website)
     now = datetime.now(timezone.utc)
@@ -103,7 +114,23 @@ def resolve_or_create_identity(
             (ecosystem, external_id),
         ).fetchone()
         if row:
-            return row[0]
+            identity_id, seller_id = row
+            if canonical_name or website:
+                current = conn.execute(
+                    "SELECT canonical_name, primary_website FROM sellers WHERE id = %s", (seller_id,)
+                ).fetchone()
+                new_name = current[0] or canonical_name
+                new_website = current[1] or website
+                if new_name != current[0] or new_website != current[1]:
+                    conn.execute(
+                        "UPDATE sellers SET canonical_name = %s, primary_website = %s WHERE id = %s",
+                        (new_name, new_website, seller_id),
+                    )
+                # Only just learned this seller's website for the first time —
+                # link detection couldn't have run before, so run it now.
+                if website and not current[1]:
+                    _detect_link_candidates(conn, seller_id, website, now)
+            return identity_id
 
         seller_row = conn.execute(
             "INSERT INTO sellers (canonical_name, primary_website, created_at) VALUES (%s, %s, %s) RETURNING id",
