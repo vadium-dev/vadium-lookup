@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -380,6 +380,119 @@ def agent_registration():
 @app.get("/logo.svg")
 def logo():
     return FileResponse(_STATIC_DIR / "logo.svg", media_type="image/svg+xml")
+
+
+# ============================================================
+# Required for the OpenAI Apps directory submission
+# (docs/openai-submission.md) — privacyPolicyURL / termsOfServiceURL
+# must resolve to real pages, and domain verification needs a plain-text
+# token hosted at a specific well-known path. The token itself isn't
+# generated until the submission is actually started in OpenAI's
+# dashboard (a human login step, can't be done from here) — this route
+# serves whatever OPENAI_APPS_CHALLENGE_TOKEN is set to, and 404s
+# honestly rather than serving an empty/fake token if it isn't set yet.
+# ============================================================
+
+_OPENAI_APPS_CHALLENGE_TOKEN = os.environ.get("OPENAI_APPS_CHALLENGE_TOKEN")
+
+
+@app.get("/.well-known/openai-apps-challenge")
+def openai_apps_challenge():
+    if not _OPENAI_APPS_CHALLENGE_TOKEN:
+        raise HTTPException(status_code=404, detail="OPENAI_APPS_CHALLENGE_TOKEN not configured")
+    return PlainTextResponse(_OPENAI_APPS_CHALLENGE_TOKEN)
+
+
+_LEGAL_PAGE_STYLE = (
+    "<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+    "max-width:680px;margin:48px auto;padding:0 20px;color:#201c16;line-height:1.6}"
+    "h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:1.8em}"
+    "code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:0.9em}</style>"
+)
+
+
+@app.get("/privacy")
+def privacy():
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Vadium Lookup — Privacy</title>{_LEGAL_PAGE_STYLE}</head><body>
+<h1>Privacy</h1>
+<p>Vadium Lookup is operated by Atesta. This page describes what the
+service actually collects and does today — not aspirational policy.</p>
+
+<h2>What we collect</h2>
+<p>The free <code>/lookup/{{agentId}}</code> and paid
+<code>/lookup-paid/{{agentId}}</code> HTTP routes log the caller's IP
+address (for rate-limiting only) and which discovery channel sent the
+request, kept in server logs and an in-memory counter — not tied to any
+persistent per-user record.</p>
+<p>The MCP tools (<code>check_agent_trust</code>,
+<code>report_outcome</code>) require a one-time OAuth connection. That
+connection ties a stable identity — by default a verified Google email
+address, or a wallet address if the alternate wallet-signature mode is
+used — to every tool call made through it. If you use
+<code>report_outcome</code>, we store the outcome you report, any
+optional task description or free-text detail you provide, and that
+identity, in a Postgres database we operate on our own server. We don't
+verify the truth of self-reported outcomes.</p>
+<p>The paid route processes payment via Coinbase's CDP facilitator; we
+don't handle or store raw payment credentials ourselves.</p>
+
+<h2>What we don't do</h2>
+<p>We don't sell your data or share it with third parties beyond what's
+operationally necessary (Google, for sign-in verification; Coinbase's
+CDP, for payment processing on the paid route). Self-reported outcomes
+are never blended into the independently-sourced ERC-8004 reputation
+numbers — they're always shown separately and labeled unverified.</p>
+
+<h2>Retention</h2>
+<p>We don't currently have an automated data-deletion schedule. Data
+persists until manually removed. If you want something removed, reach
+out via <a href="https://vadium-lookup.atesta.io/">the site</a>.</p>
+
+<h2>Changes</h2>
+<p>This is a young, actively-developed service — this page may change
+as the service does. Last reviewed 2026-10-03.</p>
+</body></html>""")
+
+
+@app.get("/terms")
+def terms():
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Vadium Lookup — Terms</title>{_LEGAL_PAGE_STYLE}</head><body>
+<h1>Terms of Service</h1>
+<p>Vadium Lookup is operated by Atesta and provided free of charge (with
+an optional $0.001 paid route that exists to measure willingness-to-pay,
+not to generate revenue). By using it, you agree to the following.</p>
+
+<h2>No warranty</h2>
+<p>The service is provided "as is," without warranty of any kind. Trust
+data — both the on-chain ERC-8004 numbers and self-reported outcomes —
+is shown as retrieved or as submitted, with no guarantee of accuracy,
+completeness, or availability. Decisions about who to hire or pay based
+on this data are yours alone.</p>
+
+<h2>Self-reported data</h2>
+<p><code>report_outcome</code> accepts self-reported claims, not
+independently verified ones. Don't submit false, defamatory, or
+malicious reports about a real agent or business — we reserve the right
+to remove reports or suspend access for abuse.</p>
+
+<h2>Acceptable use</h2>
+<p>Don't use the service to attempt to overwhelm, exploit, or gain
+unauthorized access to anything beyond its documented API. Rate limits
+exist as an abuse guard, not a pricing mechanism — don't try to
+circumvent them.</p>
+
+<h2>Changes and termination</h2>
+<p>We may change, suspend, or discontinue the service, or these terms,
+at any time. This is a young, actively-developed service — expect
+change. Last reviewed 2026-10-03.</p>
+
+<h2>Limitation of liability</h2>
+<p>To the fullest extent permitted by law, Atesta is not liable for any
+damages arising from use of this service, including decisions made
+based on trust data it returns.</p>
+</body></html>""")
 
 
 @app.get("/")
