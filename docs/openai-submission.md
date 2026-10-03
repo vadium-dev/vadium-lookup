@@ -39,6 +39,38 @@ Scoped 2026-10-03 against the real requirements
 | `privacyPolicyURL` | `https://vadium-lookup.atesta.io/privacy` |
 | `termsOfServiceURL` | `https://vadium-lookup.atesta.io/terms` |
 
+## Status: filled into the real dashboard (2026-10-03)
+
+All 5 positive test cases and the 3 negative test cases below are
+**already entered and saved** in the live submission draft
+(`platform.openai.com/plugins` → Vadium Lookup → Review information),
+confirmed by actually driving the browser and taking it to "Progress
+saved." Metadata (name, descriptions, developer, category, all four
+URLs) was also confirmed to have come through correctly from
+`plugin.json`/`mcp.json` — visible on the plugin's own detail page.
+
+**Correction to the original draft below**: the real dashboard's
+"Negative test cases" step has a different definition than first
+assumed — not malformed/invalid input (wrong ecosystem, bad outcome
+value), but prompts where the plugin **should not trigger at all**,
+to test against false-positive invocation. The three actually entered:
+1. "What's John Smith's reputation like as a freelance contractor?" —
+   a person's reputation, unrelated to ERC-8004 agents.
+2. "What's Bitcoin's reputation as a long-term investment?" — mentions
+   crypto and "reputation" but names no specific agent/seller.
+3. "Check this restaurant's Yelp rating before I make a reservation."
+   — a rating lookup, but on an unrelated consumer platform.
+
+The three "invalid input" scenarios originally drafted below (bad
+ecosystem name, bad outcome value, no-prior-lookup correlation) are
+still real and already verified live against the server (see the
+8-case test run earlier) — just not what this particular dashboard
+field wants. Worth keeping as internal QA cases regardless.
+
+Still outstanding on the dashboard's "Supporting content" step: the
+video walkthrough URL and release notes — not filled in, since
+recording the video needs a human.
+
 ## Test cases (5 positive + 3 negative), drafted
 
 **Positive 1 — basic trust check on a real ERC-8004 agent**
