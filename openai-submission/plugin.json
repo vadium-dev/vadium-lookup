@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "vadium-lookup",
   "version": "0.4.0",
-  "description": "Free trust-record lookup for any seller an agent might hire or pay. Returns raw and Sybil-adjusted ERC-8004 on-chain reputation, plus self-reported outcomes from other integrators, always clearly labeled and never blended together.",
+  "description": "Trust-record lookup for an ERC-8004 agent. Returns raw and Sybil-adjusted on-chain reputation, plus self-reported outcomes from other integrators, always clearly labeled and never blended together.",
   "author": {
     "name": "Atesta",
     "url": "https://vadium-lookup.atesta.io/"
@@ -12,7 +12,7 @@
       "interface": {
         "displayName": "Vadium Lookup",
         "shortDescription": "Check an agent's trust record",
-        "longDescription": "Vadium Lookup checks an ERC-8004 agent's trust record before you hire or pay it. check_agent_trust returns the raw ERC-8004 reputation number (the same one every explorer shows) alongside a Sybil-adjusted version that discounts reviewer clusters tracing back to a shared funding source -- real, measured evidence shows most ERC-8004 feedback on Base is exactly this kind of coordinated cluster, not independent reviewers. report_outcome lets an integrator who already checked an agent report how the transaction actually went afterward -- self-reported and never blended into the on-chain numbers, always shown separately and labeled unverified. No payment required for either tool.",
+        "longDescription": "Vadium Lookup checks an ERC-8004 agent's trust record before you hire or pay it. check_agent_trust returns the raw ERC-8004 reputation number (the same one every explorer shows) alongside a Sybil-adjusted version that discounts reviewer clusters tracing back to a shared funding source -- real, measured evidence shows most ERC-8004 feedback on Base is exactly this kind of coordinated cluster, not independent reviewers. report_outcome lets an integrator who already checked an agent report how the transaction actually went afterward -- self-reported and never blended into the on-chain numbers, always shown separately and labeled unverified.",
         "developerName": "Atesta",
         "category": "Developer Tools",
         "logo": "assets/logo.svg",

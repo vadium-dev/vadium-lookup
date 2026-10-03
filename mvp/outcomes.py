@@ -26,12 +26,21 @@ one (ecosystem, external_id) pair asked about — a self-report made
 through a ChatGPT-ecosystem identity shows up when later looking up a
 confirmed-linked ERC-8004 identity for the same real seller, and vice
 versa.
+
+Dropped the mvp/trust_lookups.py cross-reference (the "which prior
+check_agent_trust call does this report follow up on" correlation) on
+2026-10-03: it required check_agent_trust to persist a row on every
+call, which conflicts with that tool's readOnlyHint: true annotation —
+OpenAI's own submission review correctly flagged this as a user-visible
+side effect on a tool declared read-only. task_id/task_description are
+still accepted and stored here as plain, self-contained metadata on the
+report itself; they just no longer cross-reference a logged lookup.
 """
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from mvp import sellers, trust_lookups
+from mvp import sellers
 from mvp.db import DatabaseUnavailable, connect as _db_connect
 
 # Preserve the existing public name — callers (mvp/lookup.py, tests)
@@ -118,9 +127,8 @@ def record_outcome(
     made before the OAuth mechanism shipped or through a transport that
     doesn't carry one.
 
-    task_id / task_description: optional, and the same values the
-    caller may have passed to check_agent_trust for this same task — see
-    mvp/trust_lookups.py for how a prior lookup gets correlated.
+    task_id / task_description: optional, free-form, stored alongside
+    this report as plain metadata — purely informational.
 
     detail: optional free text describing what actually happened —
     distinct from evidence_ref, which points AT supporting evidence (a
@@ -149,10 +157,6 @@ def record_outcome(
             ),
         )
 
-    preceded_by_lookup = trust_lookups.find_correlated_lookup(
-        ecosystem, external_id, task_id, verified_subject, before=reported_at
-    )
-
     return {
         "ecosystem": ecosystem,
         "external_id": external_id,
@@ -163,7 +167,6 @@ def record_outcome(
         "task_id": task_id,
         "task_description": task_description,
         "detail": detail,
-        "preceded_by_lookup": preceded_by_lookup,
         "stored": True,
     }
 

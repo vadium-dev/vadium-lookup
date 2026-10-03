@@ -19,7 +19,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 
-from mvp import ecosystems, outcomes, seller_lookup, trust_lookups
+from mvp import ecosystems, outcomes, seller_lookup
 from mvp.oauth_provider import VadiumOAuthProvider
 
 # Both tools sit behind the same OAuth connection (docs/oauth-trust-spec.md)
@@ -78,15 +78,8 @@ mcp = MCPServer(
 )
 
 
-@mcp.tool(annotations={"readOnlyHint": True})
-def check_agent_trust(
-    ecosystem: str,
-    external_id: str,
-    task_id: str | None = None,
-    task_description: str | None = None,
-    seller_name: str | None = None,
-    seller_website: str | None = None,
-) -> dict:
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True})
+def check_agent_trust(ecosystem: str, external_id: str) -> dict:
     """Look up a seller's trust record before hiring or paying it — an
     ERC-8004 on-chain agent, a ChatGPT-connected app, or any other
     supported ecosystem (see `ecosystem` below).
@@ -105,11 +98,8 @@ def check_agent_trust(
     identity confirmed to be the same real seller
     (docs/seller-normalization-spec.md).
 
-    Explicitly annotated read-only: per OpenAI's own documented approval
-    model (docs/mcp-server-spec.md), this lets a calling agent invoke it
-    automatically, with no per-call human confirmation — the OAuth
-    connection itself (docs/oauth-trust-spec.md) is the one-time setup
-    step; nothing after that re-prompts the user for this tool.
+    A pure read with no side effects — nothing about calling this tool
+    is recorded anywhere.
 
     Args:
         ecosystem: Which ecosystem this seller belongs to. One of:
@@ -122,36 +112,12 @@ def check_agent_trust(
             seller — always passed as a string regardless of its native
             shape (an ERC-8004 agentId is numeric on-chain, but still
             passed here as e.g. "95910").
-        task_id: Optional, your own identifier for the task you're doing
-            this lookup for. Reuse the exact same value on a later
-            report_outcome call about the same task and we'll link the
-            two exactly; if you don't have one, or forget to reuse it,
-            report_outcome still finds this lookup by matching your most
-            recent prior check on the same seller instead.
-        task_description: Optional short description of what you're
-            trying to accomplish (e.g. "booking a same-day EU logistics
-            courier") — helps us understand what actually drives lookups.
-            Purely informational; never affects the result returned.
-        seller_name: Optional display name for this seller — used only
-            the first time we see this (ecosystem, external_id) pair, to
-            label it for our own records. Safe to omit.
-        seller_website: Optional website for this seller — used only on
-            first sighting, and is what lets us notice (for human
-            review, never automatically) that the same real seller also
-            has an identity in a different ecosystem. Safe to omit, but
-            worth providing if you have it.
     """
     ecosystem = ecosystems.normalize(ecosystem)
-    result = seller_lookup.check_seller_trust(ecosystem, external_id)
-    access_token = get_access_token()
-    verified_subject = access_token.subject if access_token else None
-    trust_lookups.record_lookup(
-        ecosystem, external_id, task_id, task_description, verified_subject, seller_name, seller_website
-    )
-    return result
+    return seller_lookup.check_seller_trust(ecosystem, external_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
 def report_outcome(
     ecosystem: str,
     external_id: str,
@@ -197,24 +163,22 @@ def report_outcome(
         evidence_ref: Optional URI or hash pointing at supporting evidence
             (a transcript, a delivered-artifact hash) — the same
             evidence-URI pattern ERC-8004's giveFeedback() already uses.
-        task_id: Optional, the same value you passed to check_agent_trust
-            for this same task, if you called it — lets us link this
-            report back to that lookup exactly. If omitted, or it doesn't
-            match any recorded lookup, we fall back to your most recent
-            prior check_agent_trust call on this same seller.
-        task_description: Optional short description of the task, same
-            idea as check_agent_trust's.
+        task_id: Optional, your own identifier for the task this outcome
+            relates to — stored alongside the report. Purely informational.
+        task_description: Optional short description of the task.
+            Purely informational.
         detail: Optional free text explaining what actually happened —
             distinct from evidence_ref, which points AT evidence rather
             than describing it. Especially worth filling in when outcome
             isn't "completed": "disputed" alone doesn't say what went
             wrong; this does, and gets surfaced back to future callers.
-        seller_name: Optional display name for this seller, same idea as
-            check_agent_trust's — used only on first sighting.
-        seller_website: Optional website for this seller, same idea as
-            check_agent_trust's — used only on first sighting, and is
-            what enables (human-reviewed, never automatic) cross-
-            ecosystem identity linking.
+        seller_name: Optional display name for this seller — used only
+            the first time we see this (ecosystem, external_id) pair, to
+            label it for our own records. Safe to omit.
+        seller_website: Optional website for this seller — used only on
+            first sighting, and is what enables (human-reviewed, never
+            automatic) cross-ecosystem identity linking
+            (docs/seller-normalization-spec.md). Safe to omit.
     """
     ecosystem = ecosystems.normalize(ecosystem)
     access_token = get_access_token()

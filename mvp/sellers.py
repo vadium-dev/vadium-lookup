@@ -179,7 +179,7 @@ def rolled_up_seller_id(seller_identity_id: int) -> int | None:
     without needing to touch any historical row that referenced this
     seller_identity_id. This indirection is the entire point of storing
     seller_identity_id (immutable) rather than seller_id (mutable via
-    merges) on trust_lookups/reported_outcomes.
+    merges) on reported_outcomes.
     """
     with connect() as conn:
         _ensure_schema(conn)
