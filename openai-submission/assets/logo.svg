@@ -1,0 +1,7 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vadium element mark">
+  <rect x="7" y="7" width="186" height="186" rx="20" fill="none" stroke="#2f6b58" stroke-width="7"></rect>
+  <text x="24" y="40" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="19" font-weight="500" fill="#8a5a24">119</text>
+  <text x="100" y="130" font-family="'Space Grotesk', sans-serif" font-size="74" font-weight="600" fill="#201c16" text-anchor="middle">Vd</text>
+  <rect x="70" y="144" width="60" height="3" fill="#8a5a24"></rect>
+  <text x="100" y="169" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="15" letter-spacing="5" fill="#2f6b58" text-anchor="middle">VADIUM</text>
+</svg>

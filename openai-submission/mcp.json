@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "vadium-lookup": {
+      "type": "streamable-http",
+      "url": "https://vadium-lookup.atesta.io/mcp"
+    }
+  }
+}
