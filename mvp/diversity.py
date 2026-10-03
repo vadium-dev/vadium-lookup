@@ -23,8 +23,17 @@ import time
 
 import requests
 
+# Migrated 2026-10-03 from the deprecated api.basescan.org/api (V1) to
+# Etherscan's unified multichain API V2 — confirmed live, not assumed:
+# the V1 endpoint now returns a deprecation notice instead of real data,
+# and V2's free tier separately rejects non-mainnet chains ("Free API
+# access is not supported for this chain"); Base chain access required
+# upgrading to a paid Etherscan plan (the $49/mo Lite tier is the
+# minimum that includes it), confirmed working with a real txlist call
+# before this migration shipped.
 BASESCAN_API_KEY = os.environ.get("BASESCAN_API_KEY")
-BASESCAN_API_URL = "https://api.basescan.org/api"
+BASESCAN_API_URL = "https://api.etherscan.io/v2/api"
+_BASE_CHAIN_ID = 8453
 
 _funder_cache: dict[str, str | None] = {}
 
@@ -59,6 +68,7 @@ def _first_funder(address: str) -> str | None:
         resp = requests.get(
             BASESCAN_API_URL,
             params={
+                "chainid": _BASE_CHAIN_ID,
                 "module": "account",
                 "action": "txlist",
                 "address": address,
